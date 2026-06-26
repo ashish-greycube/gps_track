@@ -1,0 +1,9 @@
+{
+  "platforms": ["apple", "android", "web"],
+  "apple": {
+    "modules": ["MotionTrackerModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.motiontracker.MotionTrackerModule"]
+  }
+}
