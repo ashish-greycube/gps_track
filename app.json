@@ -19,12 +19,15 @@
         "UIBackgroundModes": [
           "location",
           "fetch"
-        ]
+        ],
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
       "config": {
-        "googleMaps": {"apiKey": ""}
+        "googleMaps": {
+          "apiKey": ""
+        }
       },
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -53,6 +56,7 @@
     },
     "plugins": [
       "expo-router",
+      "./plugins/withLocationRelaunch",
       [
         "expo-splash-screen",
         {
@@ -93,17 +97,18 @@
       "typedRoutes": true,
       "reactCompiler": true
     },
-    "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "5349c17c-b198-492e-abca-0400c7541994"
-      }
-    },
     "runtimeVersion": {
       "policy": "appVersion"
     },
     "updates": {
       "url": "https://u.expo.dev/5349c17c-b198-492e-abca-0400c7541994"
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "1def8ea2-c6a6-4a36-835e-f20ea83d08b9"
+      }
+    },
+    "owner": "dev.greycube"
   }
 }

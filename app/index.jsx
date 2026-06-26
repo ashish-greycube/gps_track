@@ -1,3 +1,5 @@
+import * as Location from 'expo-location';
+import { Pedometer } from 'expo-sensors';
 import { useRouter } from 'expo-router';
 import { useEffect, useState } from 'react';
 import {
@@ -40,27 +42,49 @@ export default function App() {
   const [permissionsGranted, setPermissionsGranted] = useState(false);
 
   useEffect(() => {
-    requestAllPermissions().then(setPermissionsGranted);
+    if (Platform.OS === 'ios') {
+      (async () => {
+        // 1. Location — "While Using" first, then "Always Allow"
+        const { status: fgStatus } = await Location.requestForegroundPermissionsAsync();
+        if (fgStatus !== 'granted') {
+          Alert.alert(
+            'Location Required',
+            'Location permission is needed for tracking. Please enable it in Settings.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              { text: 'Open Settings', onPress: () => Linking.openSettings() },
+            ]
+          );
+          return;
+        }
+        await Location.requestBackgroundPermissionsAsync();
+
+        // 2. Physical Activity (NSMotionUsageDescription)
+        await Pedometer.requestPermissionsAsync();
+      })();
+    } else {
+      requestAllPermissions().then(setPermissionsGranted);
+    }
   }, []);
 
   const handleStartShield = async () => {
-    let granted = permissionsGranted;
-
-    if (!granted) {
-      granted = await requestAllPermissions();
-      setPermissionsGranted(granted);
-    }
-
-    if (!granted) {
-      Alert.alert(
-        'Permissions Required',
-        'Location and activity permissions are needed for tracking. Please enable them in Settings.',
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Open Settings', onPress: () => Linking.openSettings() },
-        ]
-      );
-      return;
+    if (Platform.OS === 'android') {
+      let granted = permissionsGranted;
+      if (!granted) {
+        granted = await requestAllPermissions();
+        setPermissionsGranted(granted);
+      }
+      if (!granted) {
+        Alert.alert(
+          'Permissions Required',
+          'Location and activity permissions are needed for tracking. Please enable them in Settings.',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Open Settings', onPress: () => Linking.openSettings() },
+          ]
+        );
+        return;
+      }
     }
 
     MotionTracker.startService();

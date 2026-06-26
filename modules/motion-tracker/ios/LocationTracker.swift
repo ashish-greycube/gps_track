@@ -1,25 +1,32 @@
 import CoreLocation
 import CoreMotion
 
-// iOS equivalent of Android's TrackingService + ActivityReceiver.
+// iOS equivalent of Android's TrackingService + ActivityReceiver + BootReceiver.
 //
 // MOVING mode → startUpdatingLocation (kCLLocationAccuracyBest, 20m filter)
 //               saves every 3 min from didUpdateLocations → "MOVING_LOOP"
 //
-// STILL mode  → large distanceFilter (passive GPS)
+// STILL mode  → large distanceFilter (passive GPS keeps app alive)
 //               Timer every 3 min → requestLocation() one-shot fetch
 //               → didUpdateLocations → "STILL_HEARTBEAT"
 //               Mirrors Android's AlarmManager heartbeat.
 //
-// Background: requires UIBackgroundModes: [location] in Info.plist
-//             and allowsBackgroundLocationUpdates = true (set below).
+// Persistence: UserDefaults "isTrackingActive" — mirrors Android SharedPreferences.
+//              stopTracking() sets it false; startTracking() sets it true.
+//              locationManagerDidChangeAuthorization only auto-resumes if flag is true,
+//              which fixes "activity permission appearing on Stop press" bug.
 //
-// App relaunch after termination: startMonitoringSignificantLocationChanges
-//   can relaunch the app. Handle UIApplicationLaunchOptionsLocationKey
-//   in AppDelegate to resume tracking (requires Expo config plugin).
+// Relaunch after termination / reboot:
+//   startMonitoringSignificantLocationChanges runs in the background even when
+//   the app is terminated. iOS relaunches the app with UIApplicationLaunchOptionsKey.location.
+//   AppDelegate calls LocationTracker.resumeIfNeeded() which checks UserDefaults and
+//   calls startTracking() if the flag is set. This mirrors Android's BootReceiver.
+//
+// Background: requires UIBackgroundModes: [location] in Info.plist
+//             and allowsBackgroundLocationUpdates = true (set in init below).
 
-class LocationTracker: NSObject, CLLocationManagerDelegate {
-    static let shared = LocationTracker()
+public class LocationTracker: NSObject, CLLocationManagerDelegate {
+    public static let shared = LocationTracker()
 
     private let locationManager = CLLocationManager()
     private let activityManager = CMMotionActivityManager()
@@ -30,7 +37,10 @@ class LocationTracker: NSObject, CLLocationManagerDelegate {
     private var heartbeatTimer   : Timer?
     private var heartbeatPending = false
     private var lastMovingSave   : Date?
-    private let saveInterval     : TimeInterval = 180   // 3 minutes
+    private let saveInterval     : TimeInterval = 180  // 3 minutes
+
+    private let defaults    = UserDefaults.standard
+    private let trackingKey = "isTrackingActive"
 
     private override init() {
         super.init()
@@ -48,14 +58,26 @@ class LocationTracker: NSObject, CLLocationManagerDelegate {
         locationManager.showsBackgroundLocationIndicator = true
 
         // Tells iOS the nature of movement so it can optimise power.
-        // OtherNavigation covers general asset/person tracking.
         locationManager.activityType = .otherNavigation
+    }
+
+    // MARK: - iOS equivalent of Android's BootReceiver
+    // Called from AppDelegate when iOS relaunches the app via significant location change
+    // or after a device reboot. Checks UserDefaults before resuming.
+
+    public static func resumeIfNeeded() {
+        guard UserDefaults.standard.bool(forKey: "isTrackingActive") else { return }
+        NSLog("MotionTracker: Relaunch detected — resuming tracking")
+        shared.startTracking()
     }
 
     // MARK: - Public API
 
-    func startTracking() {
-        guard !isTracking else { return }
+    public func startTracking() {
+        // Persist intent so iOS can resume after relaunch or reboot.
+        // Set this BEFORE the auth check so that if we call requestAlwaysAuthorization(),
+        // locationManagerDidChangeAuthorization will resume tracking once permission is granted.
+        defaults.set(true, forKey: trackingKey)
 
         let status = locationManager.authorizationStatus
         guard status == .authorizedAlways || status == .authorizedWhenInUse else {
@@ -63,21 +85,28 @@ class LocationTracker: NSObject, CLLocationManagerDelegate {
             return
         }
 
+        guard !isTracking else { return }
         isTracking     = true
         lastMovingSave = nil
 
-        // Significant-change service: does NOT require background mode,
-        // can relaunch a terminated app (Apple docs table 1-1)
+        // Significant-change service: does NOT drain battery,
+        // can relaunch a terminated app — iOS equivalent of BootReceiver.
+        // (UIBackgroundModes "location" is NOT required for this service.)
         locationManager.startMonitoringSignificantLocationChanges()
 
-        enterStillMode()                     // default; motion upgrades to MOVING
-        locationManager.startUpdatingLocation()
+        enterStillMode()                        // default; motion manager upgrades to MOVING
+        locationManager.startUpdatingLocation() // keeps app alive in background
+        fireHeartbeat()                         // immediate first fix — mirrors Android's fetchSingleLocation() on boot
         startMotionDetection()
 
         NSLog("MotionTracker: Tracking started")
     }
 
-    func stopTracking() {
+    public func stopTracking() {
+        // Clear intent FIRST — prevents locationManagerDidChangeAuthorization
+        // from auto-restarting tracking (fixes "activity permission on Stop press" bug).
+        defaults.set(false, forKey: trackingKey)
+
         guard isTracking else { return }
         isTracking     = false
         isMoving       = false
@@ -116,7 +145,9 @@ class LocationTracker: NSObject, CLLocationManagerDelegate {
         NSLog("MotionTracker: -> STILL")
     }
 
-    // MARK: - Heartbeat timer (iOS equivalent of Android's AlarmManager)
+    // MARK: - Heartbeat timer (iOS equivalent of Android's AlarmManager + setAndAllowWhileIdle)
+    // The Timer fires reliably in background because startUpdatingLocation() keeps
+    // the app alive via UIBackgroundModes: location.
 
     private func scheduleHeartbeat() {
         cancelHeartbeat()
@@ -136,13 +167,15 @@ class LocationTracker: NSObject, CLLocationManagerDelegate {
     private func fireHeartbeat() {
         guard isTracking, !isMoving, !heartbeatPending else { return }
         heartbeatPending = true
-        // One-shot location fetch — equivalent to Android's getCurrentLocation()
+        // One-shot location fetch — iOS equivalent of Android's getCurrentLocation()
         locationManager.requestLocation()
         NSLog("MotionTracker: Heartbeat fired")
     }
 
     // MARK: - CoreMotion activity detection
-    // Equivalent to Android's Activity Recognition Transitions API
+    // iOS equivalent of Android's Activity Recognition Transitions API.
+    // startActivityUpdates is event-driven (not polled), fires when iOS detects a
+    // transition between stationary/walking/automotive.
 
     private func startMotionDetection() {
         guard CMMotionActivityManager.isActivityAvailable() else {
@@ -165,7 +198,7 @@ class LocationTracker: NSObject, CLLocationManagerDelegate {
 
     // MARK: - CLLocationManagerDelegate
 
-    func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
+    public func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard isTracking, let location = locations.last else { return }
 
         if isMoving {
@@ -183,26 +216,29 @@ class LocationTracker: NSObject, CLLocationManagerDelegate {
         // Passive still-mode updates (distance filter rarely lets these through) are ignored
     }
 
-    func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+    public func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         heartbeatPending = false     // allow next heartbeat to retry
         NSLog("MotionTracker: Error: \(error.localizedDescription)")
     }
 
     // Apple docs: handle pause/resume so we know if iOS ever pauses despite our setting
-    func locationManagerDidPauseLocationUpdates(_ manager: CLLocationManager) {
+    public func locationManagerDidPauseLocationUpdates(_ manager: CLLocationManager) {
         NSLog("MotionTracker: WARNING — iOS paused location updates")
         // Restart immediately; we explicitly opted out of auto-pause
         manager.startUpdatingLocation()
     }
 
-    func locationManagerDidResumeLocationUpdates(_ manager: CLLocationManager) {
+    public func locationManagerDidResumeLocationUpdates(_ manager: CLLocationManager) {
         NSLog("MotionTracker: Location updates resumed")
     }
 
-    // Auto-start once user grants permission
-    func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+    // Auto-start once user grants permission — ONLY if user previously requested tracking.
+    // The UserDefaults guard is what prevents CMMotionActivityManager from showing its
+    // permission dialog when the user presses Stop (which triggers a permission status change).
+    public func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
         let status = manager.authorizationStatus
-        if (status == .authorizedAlways || status == .authorizedWhenInUse) && !isTracking {
+        let wantsTracking = defaults.bool(forKey: trackingKey)
+        if (status == .authorizedAlways || status == .authorizedWhenInUse) && !isTracking && wantsTracking {
             startTracking()
         }
     }

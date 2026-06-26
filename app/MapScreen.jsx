@@ -8,10 +8,14 @@ import MotionTracker from '../modules/motion-tracker';
 const MapScreen = () => {
     const router = useRouter();
     const [cordData, setCordData] = useState([]);
+    const [zoom, setZoom] = useState(15);
 
     useEffect(() => {
         MotionTracker.getLocations().then(setCordData);
     }, []);
+
+    const zoomIn  = () => setZoom(z => Math.min(z + 1, 20));
+    const zoomOut = () => setZoom(z => Math.max(z - 1, 1));
 
     const renderMap = () => {
         if (!cordData || cordData.length === 0) {
@@ -24,8 +28,25 @@ const MapScreen = () => {
             );
         }
 
+        const startPoint = cordData[cordData.length - 1];
+        const endPoint   = cordData[0];
+        const coords     = cordData.map(p => ({ latitude: p.latitude, longitude: p.longitude }));
+
         if (Platform.OS === 'ios') {
-            return <AppleMaps.View style={StyleSheet.absoluteFill} />;
+            return (
+                <AppleMaps.View
+                    style={StyleSheet.absoluteFill}
+                    cameraPosition={{
+                        coordinates: { latitude: endPoint.latitude, longitude: endPoint.longitude },
+                        zoom,
+                    }}
+                    polylines={[{ color: '#1A73E8', width: 15, coordinates: coords }]}
+                    markers={[
+                        { id: 'start', coordinates: { latitude: startPoint.latitude, longitude: startPoint.longitude }, title: 'Start', tintColor: '#34A853' },
+                        { id: 'end',   coordinates: { latitude: endPoint.latitude,   longitude: endPoint.longitude   }, title: 'End',   tintColor: '#EA4335' },
+                    ]}
+                />
+            );
         }
 
         if (Platform.OS === 'android') {
@@ -33,17 +54,14 @@ const MapScreen = () => {
                 <GoogleMaps.View
                     style={StyleSheet.absoluteFill}
                     cameraPosition={{
-                        coordinates: {
-                            latitude: cordData[0].latitude,
-                            longitude: cordData[0].longitude,
-                        },
-                        zoom: 15,
+                        coordinates: { latitude: endPoint.latitude, longitude: endPoint.longitude },
+                        zoom,
                     }}
-                    polylines={[{
-                        color: '#1A73E8',
-                        width: 15,
-                        coordinates: cordData.map(p => ({ latitude: p.latitude, longitude: p.longitude })),
-                    }]}
+                    polylines={[{ color: '#1A73E8', width: 15, coordinates: coords }]}
+                    markers={[
+                        { id: 'start', coordinates: { latitude: startPoint.latitude, longitude: startPoint.longitude }, title: 'Start', snippet: 'First recorded point' },
+                        { id: 'end',   coordinates: { latitude: endPoint.latitude,   longitude: endPoint.longitude   }, title: 'End',   snippet: 'Latest recorded point' },
+                    ]}
                 />
             );
         }
@@ -77,6 +95,17 @@ const MapScreen = () => {
             {/* Map */}
             <View style={styles.mapContainer}>
                 {renderMap()}
+                {cordData.length > 0 && (
+                    <View style={styles.zoomControls}>
+                        <TouchableOpacity style={styles.zoomButton} onPress={zoomIn} activeOpacity={0.8}>
+                            <Text style={styles.zoomIcon}>+</Text>
+                        </TouchableOpacity>
+                        <View style={styles.zoomDivider} />
+                        <TouchableOpacity style={styles.zoomButton} onPress={zoomOut} activeOpacity={0.8}>
+                            <Text style={styles.zoomIcon}>−</Text>
+                        </TouchableOpacity>
+                    </View>
+                )}
             </View>
         </SafeAreaView>
     );
@@ -158,5 +187,35 @@ const styles = StyleSheet.create({
     emptySubtitle: {
         fontSize: 14,
         color: '#6B7280',
+    },
+    zoomControls: {
+        position: 'absolute',
+        right: 12,
+        bottom: 24,
+        backgroundColor: '#FFFFFF',
+        borderRadius: 12,
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.12,
+        shadowRadius: 6,
+        elevation: 4,
+        overflow: 'hidden',
+    },
+    zoomButton: {
+        width: 44,
+        height: 44,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    zoomIcon: {
+        fontSize: 22,
+        fontWeight: '400',
+        color: '#1C1C1E',
+        lineHeight: 26,
+    },
+    zoomDivider: {
+        height: StyleSheet.hairlineWidth,
+        backgroundColor: '#E5E7EB',
+        marginHorizontal: 8,
     },
 });
