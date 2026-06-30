@@ -94,7 +94,13 @@ public class LocationTracker: NSObject, CLLocationManagerDelegate {
         // (UIBackgroundModes "location" is NOT required for this service.)
         locationManager.startMonitoringSignificantLocationChanges()
 
-        enterStillMode()                        // default; motion manager upgrades to MOVING
+        // Initial STILL mode setup — done inline so the guard in enterStillMode()
+        // (which requires isMoving=true) does not block the startup path.
+        // Mirrors Android's onStartCommand boot branch that calls scheduleHeartbeat() directly.
+        locationManager.desiredAccuracy = kCLLocationAccuracyKilometer
+        locationManager.distanceFilter  = 100
+        scheduleHeartbeat()
+
         locationManager.startUpdatingLocation() // keeps app alive in background
         fireHeartbeat()                         // immediate first fix — mirrors Android's fetchSingleLocation() on boot
         startMotionDetection()
@@ -133,13 +139,14 @@ public class LocationTracker: NSObject, CLLocationManagerDelegate {
     }
 
     private func enterStillMode() {
+        guard isMoving else { return }   // mirrors Android's if (isGpsRunning) check
         isMoving         = false
         heartbeatPending = false
 
         // Large filter: almost no passive updates — all STILL saves come
         // only from the timer-triggered requestLocation()
         locationManager.desiredAccuracy = kCLLocationAccuracyKilometer
-        locationManager.distanceFilter  = 500
+        locationManager.distanceFilter  = 100
 
         scheduleHeartbeat()
         NSLog("MotionTracker: -> STILL")
