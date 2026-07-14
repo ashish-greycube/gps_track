@@ -41,6 +41,8 @@ app-example
 # generated native folders
 /ios
 /android
-/modules/motion-tracker/android/build
-/modules/motion-tracker/android/.idea
-/modules/motion-tracker/android/.gradle
+
+# native module build output (all modules)
+**/android/build/
+**/android/.idea/
+**/android/.gradle/

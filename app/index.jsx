@@ -9,6 +9,11 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MotionTracker from '../modules/motion-tracker';
 
+// event-tracker is Android-only; requiring it on iOS would throw at load time.
+const EventTracker = Platform.OS === 'android'
+  ? require('../modules/event-tracker').default
+  : null;
+
 const requestAllPermissions = async () => {
   if (Platform.OS !== 'android') return true;
 
@@ -40,6 +45,12 @@ const requestAllPermissions = async () => {
 export default function App() {
   const router = useRouter();
   const [permissionsGranted, setPermissionsGranted] = useState(false);
+  // 'foreground' = motion-tracker (persistent notification, guaranteed cadence)
+  // 'event'      = event-tracker (no notification, opportunistic, Android only)
+  const [engine, setEngine] = useState('foreground');
+
+  const activeTracker =
+    engine === 'event' && EventTracker ? EventTracker : MotionTracker;
 
   useEffect(() => {
     if (Platform.OS === 'ios') {
@@ -87,11 +98,17 @@ export default function App() {
       }
     }
 
-    MotionTracker.startService();
+    activeTracker.startService();
+    Alert.alert(
+      'Tracking Started',
+      engine === 'event'
+        ? 'Event-driven engine (no notification). You can force-close the app — the OS will still record points on movement/location events.'
+        : 'Foreground engine running with a persistent notification.'
+    );
   };
 
   const handleStopShield = () => {
-    MotionTracker.stopService();
+    activeTracker.stopService();
   };
 
   return (
@@ -104,6 +121,37 @@ export default function App() {
         </View>
         <Text style={styles.title}>GPS Tracking</Text>
         <Text style={styles.subtitle}>This app will track your location every 5 minutes</Text>
+      </View>
+
+      {/* Engine selector */}
+      <View style={styles.card}>
+        <Text style={styles.selectorLabel}>Tracking Engine</Text>
+        <View style={styles.segment}>
+          <TouchableOpacity
+            style={[styles.segmentItem, engine === 'foreground' && styles.segmentItemActive]}
+            onPress={() => setEngine('foreground')}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.segmentText, engine === 'foreground' && styles.segmentTextActive]}>
+              Foreground
+            </Text>
+            <Text style={[styles.segmentSub, engine === 'foreground' && styles.segmentSubActive]}>
+              notification
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[styles.segmentItem, engine === 'event' && styles.segmentItemActive]}
+            onPress={() => setEngine('event')}
+            activeOpacity={0.8}
+          >
+            <Text style={[styles.segmentText, engine === 'event' && styles.segmentTextActive]}>
+              Event-Driven
+            </Text>
+            <Text style={[styles.segmentSub, engine === 'event' && styles.segmentSubActive]}>
+              no notification
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Action Buttons */}
@@ -130,7 +178,7 @@ export default function App() {
 
         <TouchableOpacity
           style={[styles.button, styles.buttonMap]}
-          onPress={() => router.push('/MapScreen')}
+          onPress={() => router.push({ pathname: '/MapScreen', params: { engine } })}
           activeOpacity={0.8}
         >
           <Text style={styles.buttonIcon}>🗺</Text>
@@ -204,6 +252,44 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.08,
     shadowRadius: 12,
     elevation: 4,
+  },
+  selectorLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#6B7280',
+    marginBottom: 4,
+  },
+  segment: {
+    flexDirection: 'row',
+    backgroundColor: '#F0F4FF',
+    borderRadius: 14,
+    padding: 4,
+    gap: 4,
+  },
+  segmentItem: {
+    flex: 1,
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  segmentItemActive: {
+    backgroundColor: '#5998e9',
+  },
+  segmentText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#6B7280',
+  },
+  segmentTextActive: {
+    color: '#FFFFFF',
+  },
+  segmentSub: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    marginTop: 2,
+  },
+  segmentSubActive: {
+    color: '#E8F0FE',
   },
   button: {
     flexDirection: 'row',

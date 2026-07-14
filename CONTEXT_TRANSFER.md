@@ -109,7 +109,22 @@ eas build --profile development --platform ios --local
 
 ---
 
+## Second module: `event-tracker` (Android-only, event-driven, NO notification)
+
+New parallel module at `modules/event-tracker/` — an alternative to `motion-tracker` that eliminates the foreground service + persistent notification. Built on the "CallReceiver" pattern: manifest-registered receivers that the OS wakes from a dead process.
+
+- **No** `TrackingService`, **no** notification, **no** `FOREGROUND_SERVICE_*` / `POST_NOTIFICATIONS` perms.
+- Package `expo.modules.eventtracker`, native module name `EventTracker`, own SQLite DB `EventTracker.db`.
+- JS API identical to motion-tracker (`startService`/`stopService`/`getLocations`) → drop-in swap.
+- Kotlin: `EventTrackerModule` (bridge), `EventTrackerRegistrar` (registers Fused Location batched-updates PendingIntent + Activity Transition PendingIntent — both held by Play Services so they survive app kill), `LocationUpdateReceiver` (`PASSIVE_UPDATE`), `ActivityTransitionReceiver` (`ACTIVITY_TRANSITION`, one-shot `getCurrentLocation`), `EventLocationDbHelper`, `BootReceiver` (re-registers after reboot).
+- **Trade-off (by design):** no notification + better battery, BUT cadence is opportunistic — background location is OS-throttled to ~a few updates/hour; Doze defers further. Not for guaranteed 3-min points.
+- **Status:** scaffolded + wired into app UI, NOT yet built/tested on device. iOS not implemented (module declares only `android`+`web` platforms; importing on iOS will throw — guard with `Platform.OS === "android"`).
+- **App wiring:** `app/index.jsx` has an engine selector (Foreground = motion-tracker, Event-Driven = event-tracker). `EventTracker` is `require()`d only on Android. Start/Stop act on the selected engine; the choice is passed to `MapScreen.jsx` via `?engine=` param so the map reads the matching DB. Lint passes.
+- **IMPORTANT:** event-tracker adds NEW native Kotlin — needs a native rebuild (`npm run android`, not just `npm start`) to compile it and merge its AndroidManifest.
+
 ## What's Next / Pending
+- [ ] Build & test `event-tracker` on a real Android device (`npm run android`) — verify receivers fire from killed state, points land in `EventTracker.db`
+- [ ] Wire `event-tracker` into a test screen / decide which apps use it vs `motion-tracker`
 - [ ] iOS simulator test — `npx expo run:ios` (was about to do this when session ended)
 - [ ] `AppleMaps.View` camera + polylines in `MapScreen.jsx` for iOS
 - [ ] Expo config plugin for `UIApplicationLaunchOptionsLocationKey` in AppDelegate (app relaunch after termination on iOS)

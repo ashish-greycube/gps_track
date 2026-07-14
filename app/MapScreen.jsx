@@ -1,18 +1,25 @@
 import { AppleMaps, GoogleMaps } from 'expo-maps';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { Alert, Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import MotionTracker from '../modules/motion-tracker';
 
+// event-tracker is Android-only; requiring it on iOS would throw at load time.
+const EventTracker = Platform.OS === 'android'
+    ? require('../modules/event-tracker').default
+    : null;
+
 const MapScreen = () => {
     const router = useRouter();
+    const { engine } = useLocalSearchParams();
     const [cordData, setCordData] = useState([]);
     const [zoom, setZoom] = useState(15);
 
     useEffect(() => {
-        MotionTracker.getLocations().then(setCordData);
-    }, []);
+        const tracker = engine === 'event' && EventTracker ? EventTracker : MotionTracker;
+        tracker.getLocations().then(setCordData);
+    }, [engine]);
 
     const zoomIn  = () => setZoom(z => Math.min(z + 1, 20));
     const zoomOut = () => setZoom(z => Math.max(z - 1, 1));
